@@ -1,0 +1,33 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Agent OmniRetail on AWS Lambda
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Runtime: python3.11
+
+Resources:
+  OmniRetailApiFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: makefile
+    Properties:
+      FunctionName: agent-omniretail-api
+      Handler: app.lambda_handler.lambda_handler
+      CodeUri: .
+      Events:
+        ChatApi:
+          Type: Api
+          Properties:
+            Path: /chat
+            Method: post
+      Environment:
+        Variables:
+          APP_ENV: aws
+
+Outputs:
+  OmniRetailApiUrl:
+    Description: URL base del endpoint del agente
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/chat"

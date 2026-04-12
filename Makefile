@@ -1,0 +1,11 @@
+build-OmniRetailApiFunction:
+	pip install -r requirements.txt -t "$(ARTIFACTS_DIR)"
+	mkdir -p "$(ARTIFACTS_DIR)/app"
+	mkdir -p "$(ARTIFACTS_DIR)/core"
+	mkdir -p "$(ARTIFACTS_DIR)/tools"
+	mkdir -p "$(ARTIFACTS_DIR)/data"
+	cp -r app/* "$(ARTIFACTS_DIR)/app/"
+	cp -r core/* "$(ARTIFACTS_DIR)/core/"
+	cp -r tools/* "$(ARTIFACTS_DIR)/tools/"
+	cp -r data/raw "$(ARTIFACTS_DIR)/data/"
+	cp -r data/policies "$(ARTIFACTS_DIR)/data/"
