@@ -4,6 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import duckdb
+from core.s3_sync import get_effective_raw_dir
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -28,14 +29,15 @@ REQUIRED_CSV_FILES = [
 
 
 def get_data_raw_dir() -> Path:
-    return DATA_RAW_DIR
+    return get_effective_raw_dir()
 
 
 def validate_required_files() -> None:
+    data_raw_dir = get_data_raw_dir()
     missing_files = [
         file_name
         for file_name in REQUIRED_CSV_FILES
-        if not (DATA_RAW_DIR / file_name).exists()
+        if not (data_raw_dir / file_name).exists()
     ]
 
     if missing_files:
@@ -58,9 +60,10 @@ def get_connection() -> duckdb.DuckDBPyConnection:
 
 
 def _register_csv_views(conn: duckdb.DuckDBPyConnection) -> None:
+    data_raw_dir = get_data_raw_dir()
     for file_name in REQUIRED_CSV_FILES:
         table_name = file_name.replace(".csv", "")
-        file_path = DATA_RAW_DIR / file_name
+        file_path = data_raw_dir / file_name
 
         conn.execute(
             f"""

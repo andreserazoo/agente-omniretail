@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
+from core.s3_sync import get_effective_policies_dir
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 POLICIES_DIR = PROJECT_ROOT / "data" / "policies"
@@ -27,10 +29,11 @@ class PolicySection:
 
 
 def get_policies_dir() -> Path:
-    return POLICIES_DIR
+    return get_effective_policies_dir()
 
 
 def validate_policy_files() -> None:
+    policies_dir = get_policies_dir()
     required_files = [
         "Política de devoluciones.md",
         "Política de garantía.md",
@@ -40,7 +43,7 @@ def validate_policy_files() -> None:
     missing = [
         file_name
         for file_name in required_files
-        if not (POLICIES_DIR / file_name).exists()
+        if not (policies_dir / file_name).exists()
     ]
 
     if missing:
@@ -114,7 +117,7 @@ def load_policy_sections() -> list[PolicySection]:
 
     sections: list[PolicySection] = []
 
-    for file_path in sorted(POLICIES_DIR.glob("*.md")):
+    for file_path in sorted(get_policies_dir().glob("*.md")):
         sections.extend(_split_markdown_into_sections(file_path))
 
     return sections

@@ -1,4 +1,11 @@
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(PROJECT_ROOT / ".env")
 
 
 def get_runtime_env() -> str:
@@ -7,6 +14,10 @@ def get_runtime_env() -> str:
 
 def is_aws_env() -> bool:
     return get_runtime_env() == "aws"
+
+
+def is_lambda_runtime() -> bool:
+    return bool(os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
 
 
 def get_aws_region() -> str:

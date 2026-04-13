@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+import re
 import unicodedata
 
 from core.anti_hallucination import (
@@ -22,6 +23,7 @@ from core.policy_response_builder import build_policy_answer
 from core.router import decide_route
 from core.session_context import (
     add_conversation_message,
+    clear_context_value,
     get_context_value,
     get_session_customer,
     get_tool_trace_length,
@@ -40,7 +42,7 @@ from tools.order_tools import (
     order_belongs_to_customer,
 )
 from tools.policy_tools import search_policy_sections
-from tools.product_tools import get_product_price, get_product_stock
+from tools.product_tools import get_product_price, get_product_stock, search_products_by_text
 
 
 @dataclass
@@ -101,8 +103,11 @@ class OmniRetailAgent:
         if user_message is None:
             return ""
         if isinstance(user_message, str):
-            return user_message.strip()
-        return str(user_message).strip()
+            text = user_message.strip()
+        else:
+            text = str(user_message).strip()
+
+        return self._repair_common_mojibake(text)
 
     def _try_inline_authentication(self, entities, original_message: str) -> str | None:
         lowered = self._normalize_lookup_text(original_message)
@@ -189,7 +194,7 @@ class OmniRetailAgent:
             return self._handle_policy_question(user_message)
 
         if route.intent == "product_price_stock":
-            return self._handle_product_public(entities)
+            return self._handle_product_public(user_message, entities)
 
         if route.intent == "order_amount":
             return self._handle_order_amount(entities, trace_start_index)
@@ -219,7 +224,7 @@ class OmniRetailAgent:
             )
 
         if last_intent == "product_price_stock" and "stock" in lowered:
-            return self._handle_product_public(entities)
+            return self._handle_product_public(user_message, entities)
 
         if self._looks_like_order_followup(lowered):
             return self._handle_order_status_sensitive(
@@ -262,10 +267,13 @@ class OmniRetailAgent:
 
         return build_policy_answer(policy_result.data)
 
-    def _handle_product_public(self, entities) -> str:
+    def _handle_product_public(self, user_message: str, entities) -> str:
         product_id = self._resolve_scoped_product_id(entities)
 
         if not product_id:
+            candidate_response = self._search_product_candidates(user_message)
+            if candidate_response:
+                return candidate_response
             return "Para consultar precio o stock, indícame el product_id del producto que quieres revisar."
 
         set_context_value("last_product_id", str(product_id))
@@ -314,6 +322,9 @@ class OmniRetailAgent:
             return "No pude validar la pertenencia de ese pedido."
 
         if not ownership.data.get("belongs"):
+            if not entities.order_id:
+                clear_context_value("last_order_id")
+                return self._ask_for_order_id(customer_id)
             return "Ese pedido no pertenece al cliente autenticado."
 
         order_result = get_order_amounts(order_id)
@@ -359,6 +370,9 @@ class OmniRetailAgent:
             return "No pude validar la pertenencia de ese pedido."
 
         if not ownership.data.get("belongs"):
+            if not entities.order_id:
+                clear_context_value("last_order_id")
+                return self._ask_for_order_id(customer_id)
             return "Ese pedido no pertenece al cliente autenticado."
 
         lowered = self._normalize_lookup_text(user_message)
@@ -376,14 +390,8 @@ class OmniRetailAgent:
                 "cancelado",
             ]
         )
-        asks_tracking = any(
-            token in lowered
-            for token in ["tracking", "track", "trak", "trakinn", "historial", "evento", "ruta", "movimiento"]
-        )
-        asks_shipping = any(
-            token in lowered
-            for token in ["guia", "transportadora", "envio", "entrega", "gui"]
-        )
+        asks_tracking = self._has_tracking_signal(lowered)
+        asks_shipping = self._has_shipping_signal(lowered)
 
         if asks_tracking:
             return self._build_tracking_response(order_id, trace_start_index)
@@ -511,6 +519,9 @@ class OmniRetailAgent:
             return "No pude validar la pertenencia de ese pedido."
 
         if not ownership.data.get("belongs"):
+            if not entities.order_id:
+                clear_context_value("last_order_id")
+                return self._ask_for_order_id(customer_id)
             return "Ese pedido no pertenece al cliente autenticado."
 
         product_id = self._resolve_scoped_product_id(entities)
@@ -581,6 +592,9 @@ class OmniRetailAgent:
             return "No pude validar la pertenencia de ese pedido."
 
         if not ownership.data.get("belongs"):
+            if not entities.order_id:
+                clear_context_value("last_order_id")
+                return self._ask_for_order_id(customer_id)
             return "Ese pedido no pertenece al cliente autenticado."
 
         product_id = self._resolve_scoped_product_id(entities)
@@ -790,6 +804,94 @@ class OmniRetailAgent:
 
         return get_context_value("last_product_id")
 
+    def _search_product_candidates(self, user_message: str) -> str | None:
+        normalized = self._normalize_lookup_text(user_message)
+        previous_results = get_context_value("last_product_search_results", [])
+        normalized_tokens = normalized.replace("?", " ").replace(",", " ").split()
+        if any(token in normalized_tokens for token in ["stock", "precio", "vale", "cuesta"]) and previous_results:
+            visible = [
+                f"{item.get('product_id')} ({format_short_text(item.get('name'))})"
+                for item in previous_results[:5]
+            ]
+            return (
+                "Todavía necesito que me indiques el product_id exacto. "
+                f"Las opciones más recientes fueron: {', '.join(visible)}."
+            )
+
+        generic_tokens = {
+            "cual",
+            "cuanto",
+            "cuesta",
+            "vale",
+            "tienen",
+            "hay",
+            "precio",
+            "stock",
+            "del",
+            "de",
+            "el",
+            "la",
+            "los",
+            "las",
+            "un",
+            "una",
+            "producto",
+            "productos",
+            "disponible",
+            "disponibles",
+            "y",
+        }
+        terms = [token for token in normalized.replace("?", " ").split() if token not in generic_tokens]
+        if not terms:
+            return None
+
+        query = " ".join(terms[:4])
+        result = search_products_by_text(query)
+        if not result.ok:
+            return None
+
+        matches = result.data.get("results", [])
+        if not matches:
+            return None
+
+        set_context_value("last_product_search_query", query)
+        set_context_value("last_product_search_results", matches[:5])
+
+        if len(matches) == 1:
+            product_id = str(matches[0].get("product_id"))
+            set_context_value("last_product_id", product_id)
+            set_context_value("last_product_search_results", [])
+            price_result = get_product_price(product_id)
+            stock_result = get_product_stock(product_id)
+            if not price_result.ok and not stock_result.ok:
+                return None
+
+            parts: list[str] = [f"Producto consultado: {product_id}."]
+            if price_result.ok:
+                data = price_result.data
+                parts.append(
+                    f"Nombre: {format_short_text(data.get('name'))}. "
+                    f"Precio: {format_currency_cop(data.get('price'))}. "
+                    f"Marca: {format_short_text(data.get('brand_name'))}. "
+                    f"Categoría: {format_short_text(data.get('category_name'))}."
+                )
+            if stock_result.ok:
+                data = stock_result.data
+                parts.append(
+                    f"Stock disponible: {format_value(data.get('available_qty'))}. "
+                    f"Ubicación: {format_short_text(data.get('warehouse_location'))}."
+                )
+            return " ".join(parts)
+
+        visible = [
+            f"{item.get('product_id')} ({format_short_text(item.get('name'))})"
+            for item in matches[:5]
+        ]
+        return (
+            "Encontré varios productos relacionados. "
+            f"Indícame el product_id del que quieres revisar. Algunas opciones: {', '.join(visible)}."
+        )
+
     def _build_display_name_from_customer(self, data: dict[str, Any]) -> str:
         return " ".join(
             part.strip()
@@ -805,24 +907,69 @@ class OmniRetailAgent:
         normalized = unicodedata.normalize("NFKD", (text or "").strip().lower())
         return "".join(char for char in normalized if not unicodedata.combining(char))
 
+    def _repair_common_mojibake(self, text: str) -> str:
+        raw = (text or "").strip()
+        if not raw:
+            return ""
+
+        suspicious_markers = ["Ã", "Â", "ï¿½", "â", "Ð", "Ñ"]
+        if not any(marker in raw for marker in suspicious_markers):
+            return raw
+
+        candidates = [raw]
+        try:
+            candidates.append(raw.encode("latin-1", errors="ignore").decode("utf-8", errors="ignore").strip())
+        except Exception:
+            pass
+
+        try:
+            candidates.append(raw.encode("cp1252", errors="ignore").decode("utf-8", errors="ignore").strip())
+        except Exception:
+            pass
+
+        best = raw
+        best_score = self._score_text_readability(raw)
+        for candidate in candidates[1:]:
+            if not candidate:
+                continue
+            score = self._score_text_readability(candidate)
+            if score > best_score:
+                best = candidate
+                best_score = score
+
+        return best
+
+    def _score_text_readability(self, text: str) -> int:
+        if not text:
+            return -100
+
+        score = 0
+        for bad in ["Ã", "Â", "ï¿½", "â"]:
+            score -= text.count(bad) * 4
+
+        for good in ["á", "é", "í", "ó", "ú", "ñ", "¿", "?"]:
+            score += text.count(good) * 2
+
+        score += sum(1 for char in text if char.isalnum() or char.isspace())
+        return score
+
     def _looks_like_order_followup(self, lowered: str) -> bool:
         if not (get_context_value("last_order_id") or has_verified_customer()):
             return False
-        return any(
-            token in lowered
-            for token in [
-                "y la guia",
-                "y el tracking",
-                "tracking",
-                "track",
-                "trak",
-                "trakinn",
-                "guia",
-                "guia de ese",
-                "y la guia de ese",
-                "de ese pedido",
-                "de una",
-            ]
+        return (
+            any(
+                token in lowered
+                for token in [
+                    "y la guia",
+                    "y el tracking",
+                    "guia de ese",
+                    "y la guia de ese",
+                    "de ese pedido",
+                    "de una",
+                ]
+            )
+            or self._has_tracking_signal(lowered)
+            or self._has_shipping_signal(lowered)
         )
 
     def _looks_like_order_overview_request(self, lowered: str) -> bool:
@@ -887,6 +1034,20 @@ class OmniRetailAgent:
         return (
             "Para ayudarte con informacion sensible de pedidos, primero debo verificar tu identidad. "
             "Por favor comparte tu numero de documento o tu telefono registrado."
+        )
+
+    def _has_tracking_signal(self, text: str) -> bool:
+        return any(
+            token in text
+            for token in ["tracking", "track", "trak", "trakinn", "historial", "evento", "ruta", "movimiento"]
+        )
+
+    def _has_shipping_signal(self, text: str) -> bool:
+        if any(token in text for token in ["transportadora", "envio", "entrega", "gui"]):
+            return True
+
+        return bool(
+            re.search(r"g[^a-z0-9]*u[^a-z0-9]*(?:i[^a-z0-9]*)?a", text)
         )
 
     def _build_helpful_fallback(self) -> str:

@@ -1,4 +1,5 @@
 .aws-sam/
+.aws_cache/
 .git/
 .venv/
 .vscode/

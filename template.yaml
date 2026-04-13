@@ -9,6 +9,18 @@ Globals:
     Runtime: python3.11
 
 Resources:
+  OmniRetailSessionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: agent-omniretail-sessions
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: session_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: session_id
+          KeyType: HASH
+
   OmniRetailApiFunction:
     Type: AWS::Serverless::Function
     Metadata:
@@ -17,6 +29,11 @@ Resources:
       FunctionName: agent-omniretail-api
       Handler: app.lambda_handler.lambda_handler
       CodeUri: .
+      Policies:
+        - S3ReadPolicy:
+            BucketName: agent-omniretail-data-526680396747
+        - DynamoDBCrudPolicy:
+            TableName: agent-omniretail-sessions
       Events:
         ChatApi:
           Type: Api
@@ -26,6 +43,8 @@ Resources:
       Environment:
         Variables:
           APP_ENV: aws
+          DATA_BUCKET: agent-omniretail-data-526680396747
+          SESSIONS_TABLE: agent-omniretail-sessions
 
 Outputs:
   OmniRetailApiUrl:

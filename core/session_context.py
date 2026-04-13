@@ -260,6 +260,22 @@ def get_session_snapshot() -> dict[str, Any]:
         return _safe_copy(_SESSION_STATE)
 
 
+def load_session_snapshot(snapshot: dict[str, Any] | None) -> None:
+    """
+    Restaura el estado completo de sesión desde un snapshot externo.
+    Útil para rehidratar sesión desde almacenamiento persistente.
+    """
+    if not isinstance(snapshot, dict):
+        reset_session()
+        return
+
+    with _LOCK:
+        _SESSION_STATE["customer"] = _safe_copy(snapshot.get("customer"))
+        _SESSION_STATE["tool_trace"] = _safe_copy(snapshot.get("tool_trace", []))
+        _SESSION_STATE["conversation"] = _safe_copy(snapshot.get("conversation", []))
+        _SESSION_STATE["metadata"] = _safe_copy(snapshot.get("metadata", {}))
+
+
 __all__ = [
     "SessionContext",
     "add_tool_trace",
@@ -277,4 +293,5 @@ __all__ = [
     "get_context_value",
     "clear_context_value",
     "get_session_snapshot",
+    "load_session_snapshot",
 ]

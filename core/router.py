@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import re
 import unicodedata
 from dataclasses import dataclass, field
-import re
 
 
 @dataclass
@@ -18,13 +18,20 @@ class RouteDecision:
 
 FAQ_KEYWORDS = {
     "metodos de pago",
+    "metodo de pago",
+    "formas de pago",
+    "medios de pago",
     "pago",
     "pagos",
     "canales de atencion",
     "atencion",
     "whatsapp",
+    "servicio al cliente",
+    "soporte",
     "envios a todo colombia",
     "cobertura",
+    "zona rural",
+    "zonas rurales",
     "horario",
     "cuanto tarda",
     "tiempo de entrega",
@@ -33,6 +40,10 @@ FAQ_KEYWORDS = {
     "quiero info",
     "necesito ayuda",
     "me ayudas",
+    "pedido retrasado",
+    "pedido demorado",
+    "se mojo",
+    "mojo",
 }
 
 POLICY_KEYWORDS = {
@@ -46,6 +57,12 @@ POLICY_KEYWORDS = {
     "envio",
     "promocion",
     "promocional",
+    "incompleto",
+    "rechazar",
+    "agua",
+    "tecnico autorizado",
+    "tecnico no autorizado",
+    "despachado",
 }
 
 ORDER_AMOUNT_KEYWORDS = {
@@ -56,15 +73,20 @@ ORDER_AMOUNT_KEYWORDS = {
     "shipping_cost",
     "costo de envio",
     "cuanto pague",
+    "cuanto costo",
     "monto",
     "montos",
 }
 
 ORDER_STATUS_KEYWORDS = {
     "mi pedido",
+    "mi compra",
     "estado de mi pedido",
     "donde esta mi pedido",
     "donde va mi pedido",
+    "cuando llega mi pedido",
+    "cuando llega mi compra",
+    "cuando me llega",
     "donde anda",
     "onde anda",
     "onde esta",
@@ -74,6 +96,7 @@ ORDER_STATUS_KEYWORDS = {
     "info de mi pedido",
     "dame info del pedido",
     "quiero saber del pedido",
+    "quiero saber sobre mi compra",
     "informacion del pedido",
     "informacion sobre el pedido",
     "detalle del pedido",
@@ -83,6 +106,9 @@ ORDER_STATUS_KEYWORDS = {
     "tracking",
     "historial",
     "guia",
+    "numero de guia",
+    "numero guia",
+    "numero de seguimiento",
     "envio de mi pedido",
     "pedido entregado",
     "pedido cancelado",
@@ -96,13 +122,20 @@ ORDER_STATUS_KEYWORDS = {
 PRODUCT_KEYWORDS = {
     "precio",
     "stock",
-    "disponible",
+    "cuanto cuesta",
+    "cuanto vale",
+    "cuesta",
+    "vale",
     "inventario",
-    "producto",
     "envio gratis",
     "promocion",
     "categoria",
     "marca",
+    "samsung",
+    "galaxy",
+    "laptop",
+    "laptops",
+    "hp",
 }
 
 WARRANTY_KEYWORDS = {
@@ -161,9 +194,23 @@ def decide_route(user_message: str) -> RouteDecision:
         ]
     )
 
-    # Fuzzy stems to survive imperfect encoding like "garant?a" / "gu?a".
     has_warranty_signal = any(token in text for token in ["garant", "warranty"])
     has_return_signal = any(token in text for token in ["devol", "reembol", "cambio"])
+    has_policy_signal = any(
+        token in text
+        for token in [
+            "incompleto",
+            "rechazar",
+            "mojo",
+            "moj",
+            "agua",
+            "tecnico no autorizado",
+            "no era autorizado",
+            "tecnico que reparo",
+            "despachado",
+            "electronica",
+        ]
+    )
     has_status_signal = any(
         token in text
         for token in [
@@ -177,6 +224,8 @@ def decide_route(user_message: str) -> RouteDecision:
             "envio",
             "donde esta",
             "donde va",
+            "cuando llega",
+            "me llega",
             "donde anda",
             "onde anda",
             "onde esta",
@@ -184,17 +233,27 @@ def decide_route(user_message: str) -> RouteDecision:
             "pasao",
             "dame info del pedido",
             "quiero saber del pedido",
+            "quiero saber sobre mi compra",
             "informacion del pedido",
             "detalle del pedido",
             "resumen del pedido",
             "ver pedido",
             "revisar pedido",
             "estado",
+            "guia",
         ]
     )
     has_faq_signal = any(
         token in text
-        for token in ["pago", "whatsapp", "atenc", "env", "cobertura", "tarda", "informacion general"]
+        for token in [
+            "pago",
+            "whatsapp",
+            "atenc",
+            "cobertura",
+            "tarda",
+            "informacion general",
+            "zona rural",
+        ]
     )
 
     if amount_matches:
@@ -227,7 +286,7 @@ def decide_route(user_message: str) -> RouteDecision:
             matched_keywords=return_matches or ["devol"],
         )
 
-    if status_matches or (("pedido" in text or "pedio" in text) and has_status_signal):
+    if status_matches or (("pedido" in text or "pedio" in text or "compra" in text) and has_status_signal):
         return RouteDecision(
             intent="order_status_history",
             is_sensitive=True,
@@ -247,13 +306,13 @@ def decide_route(user_message: str) -> RouteDecision:
             matched_keywords=policy_matches,
         )
 
-    if policy_matches:
+    if policy_matches or ((has_warranty_signal or has_return_signal or has_policy_signal) and not mentions_my_purchase):
         return RouteDecision(
             intent="policy_question",
             is_sensitive=False,
             requires_auth=False,
             data_source="policies",
-            matched_keywords=policy_matches,
+            matched_keywords=policy_matches or ["policy_signal"],
         )
 
     if product_matches:
