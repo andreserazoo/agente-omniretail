@@ -228,6 +228,11 @@ class OmniRetailAgent:
         if last_intent == "product_price_stock" and "stock" in lowered:
             return self._handle_product_public(user_message, entities)
 
+        if self._looks_like_product_recommendation_request(lowered):
+            recommendation = self._handle_product_recommendation_from_context(lowered)
+            if recommendation:
+                return recommendation
+
         if self._looks_like_order_followup(lowered):
             return self._handle_order_status_sensitive(
                 user_message,
@@ -915,6 +920,104 @@ class OmniRetailAgent:
             return None
         return cleaned[:80]
 
+    def _handle_product_recommendation_from_context(self, lowered: str) -> str | None:
+        candidates = get_context_value("last_product_search_results", [])
+        if not candidates:
+            return None
+
+        ranked_candidates = sorted(
+            candidates,
+            key=lambda item: self._build_product_recommendation_key(item, lowered),
+            reverse=True,
+        )
+        best = ranked_candidates[0]
+        product_id = str(best.get("product_id"))
+        set_context_value("last_product_id", product_id)
+
+        reason = self._build_product_recommendation_reason(lowered)
+        return (
+            f"De las opciones recientes, te recomiendo el producto {product_id}: "
+            f"{format_short_text(best.get('name'))}. "
+            f"Precio: {format_currency_cop(best.get('price'))}. "
+            f"Stock disponible: {format_value(best.get('available_qty'))}. "
+            f"Marca: {format_short_text(best.get('brand_name'))}. "
+            f"Categoría: {format_short_text(best.get('category_name'))}. "
+            f"{reason} "
+            "Si quieres, también puedo darte el detalle exacto de precio o stock de ese producto."
+        )
+
+    def _build_product_recommendation_key(
+        self,
+        item: dict[str, Any],
+        lowered: str,
+    ) -> tuple[int, int, float, int]:
+        active_score = 1 if item.get("active") else 0
+        quality_score = self._score_product_recommendation_quality(item)
+        stock = self._safe_int(item.get("available_qty"))
+        price = self._safe_float(item.get("price"))
+        product_id = self._safe_int(item.get("product_id"))
+
+        if any(token in lowered for token in ["barata", "economica", "mas barata"]):
+            return (active_score, stock, -price, product_id)
+
+        if any(token in lowered for token in ["stock", "disponible", "disponibles"]):
+            return (active_score, quality_score, stock, product_id)
+
+        if any(token in lowered for token in ["nueva", "nuevo", "reciente", "ultima"]):
+            return (active_score, self._score_product_recency(item), stock, product_id)
+
+        return (active_score, quality_score, stock, price)
+
+    def _build_product_recommendation_reason(self, lowered: str) -> str:
+        if any(token in lowered for token in ["barata", "economica", "mas barata"]):
+            return "La elegí porque es la opción más económica dentro de las alternativas encontradas."
+
+        if any(token in lowered for token in ["stock", "disponible", "disponibles"]):
+            return "La elegí porque es una de las opciones con mejor disponibilidad ahora mismo."
+
+        if any(token in lowered for token in ["nueva", "nuevo", "reciente", "ultima"]):
+            return "La elegí porque parece ser la versión más reciente dentro de las opciones encontradas."
+
+        return "La elegí porque combina mejor nivel de producto, disponibilidad y versión dentro de las opciones encontradas."
+
+    def _score_product_recommendation_quality(self, item: dict[str, Any]) -> int:
+        name = self._normalize_lookup_text(str(item.get("name", "")))
+        score = 0
+        weighted_tokens = {
+            "ultra": 6,
+            "max": 5,
+            "pro": 4,
+            "plus": 3,
+            "lite": -2,
+            "mini": -2,
+        }
+        for token, weight in weighted_tokens.items():
+            if token in name:
+                score += weight
+
+        score += self._score_product_recency(item)
+        score += min(self._safe_int(item.get("available_qty")), 50) // 5
+        return score
+
+    def _score_product_recency(self, item: dict[str, Any]) -> int:
+        name = self._normalize_lookup_text(str(item.get("name", "")))
+        year_match = re.search(r"\b(20\d{2})\b", name)
+        if year_match:
+            return int(year_match.group(1))
+        return self._safe_int(item.get("product_id"))
+
+    def _safe_int(self, value: Any) -> int:
+        try:
+            return int(value)
+        except Exception:
+            return 0
+
+    def _safe_float(self, value: Any) -> float:
+        try:
+            return float(value)
+        except Exception:
+            return 0.0
+
     def _build_display_name_from_customer(self, data: dict[str, Any]) -> str:
         return " ".join(
             part.strip()
@@ -1050,6 +1153,28 @@ class OmniRetailAgent:
                 "listar mis pedidos",
                 "quiero saber que pedidos tengo",
                 "mostrarme mis compras",
+            ]
+        )
+
+    def _looks_like_product_recommendation_request(self, lowered: str) -> bool:
+        if not get_context_value("last_product_search_results", []):
+            return False
+
+        return any(
+            token in lowered
+            for token in [
+                "la mejor",
+                "el mejor",
+                "muestrame la mejor",
+                "muestrame el mejor",
+                "muestrame la mas barata",
+                "la mas barata",
+                "cual recomiendas",
+                "cual me recomiendas",
+                "la mejor opcion",
+                "la premium",
+                "la pro",
+                "la de mas stock",
             ]
         )
 

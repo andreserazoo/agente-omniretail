@@ -132,7 +132,67 @@ agent-omniretail/
   README.md
 ```
 
+## Modos de uso
+
+Hay tres formas de usar este proyecto:
+
+### 1. Probar la versión ya desplegada en AWS
+
+Este es el camino más simple para conversar con el agente y validar cómo responde.
+
+Requiere únicamente:
+
+- acceso al endpoint AWS
+- una forma de enviar requests HTTP, por ejemplo:
+  - PowerShell
+  - Postman
+  - el script `tests/test_chat_aws_manual.py`
+
+No requiere:
+
+- Docker
+- AWS SAM CLI
+- levantar el proyecto localmente
+- editar código
+
+### 2. Ejecutarlo localmente
+
+Este camino sirve para probar el proyecto en una máquina local, sin desplegar cambios.
+
+Requiere:
+
+- Python 3.11
+- dependencias del proyecto
+- datasets disponibles
+
+No requiere necesariamente:
+
+- Docker, si solo vas a correrlo local
+- AWS SAM CLI, si no vas a desplegar
+
+### 3. Desarrollar y desplegar cambios
+
+Este es el camino completo para editar el proyecto, construir la Lambda y desplegar en AWS.
+
+Requiere:
+
+- Python 3.11
+- Docker Desktop
+- AWS CLI
+- AWS SAM CLI
+
 ## Requisitos
+
+### Para solo probar el endpoint AWS
+
+- acceso al endpoint desplegado
+- PowerShell, Postman o `python` para usar `tests/test_chat_aws_manual.py`
+
+### Para ejecución local
+
+- Python 3.11
+
+### Para desarrollo y despliegue
 
 - Python 3.11
 - Docker Desktop
@@ -152,9 +212,24 @@ Dependencias de desarrollo:
 
 ## Instalación local
 
+Esta sección aplica cuando el proyecto se ejecuta en un equipo local. No es obligatoria para quien solo vaya a probar la versión AWS.
+
+Si Python 3.11 no está instalado, en Windows puede instalarse por consola con:
+
+```powershell
+winget install Python.Python.3.11
+```
+
+La instalación puede verificarse con:
+
+```powershell
+py -3.11 --version
+```
+
 ```powershell
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 python -m pip install -r requirements-dev.txt
 ```
@@ -228,30 +303,59 @@ print(str(response))
 ### Chat manual local
 
 ```powershell
-python tests/test_chat_manual.py
+.\.venv\Scripts\python.exe tests/test_chat_manual.py
 ```
 
 ### Chat manual contra AWS
 
 ```powershell
-python tests/test_chat_aws_manual.py
+.\.venv\Scripts\python.exe tests/test_chat_aws_manual.py
 ```
 
 Ese script conversa contra el endpoint real en AWS y mantiene `session_id` entre turnos.
 
+Cuando solo se quiere probar el agente desplegado, este suele ser el camino más simple.
+
+## Probar sin instalar todo el entorno
+
+Si ya existe un endpoint AWS desplegado, el agente puede probarse sin montar el proyecto completo.
+
+Opciones:
+
+- usar PowerShell con `Invoke-RestMethod`
+- usar Postman
+- usar el script `tests/test_chat_aws_manual.py` si tiene Python instalado
+
+Ejemplo mínimo con PowerShell:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri "https://<api-id>.execute-api.<region>.amazonaws.com/Prod/chat" `
+  -ContentType "application/json" `
+  -Body '{"message":"Hola","session_id":"demo-aws-1"}'
+```
+
+En ese escenario no hace falta:
+
+- abrir Docker
+- correr SAM
+- instalar dependencias de desarrollo
+- configurar AWS CLI para solo consumir el endpoint
+
 ### Pruebas manuales recomendadas
 
 ```powershell
-python tests/test_create_agent_manual.py
-python tests/test_tools_manual.py
-python tests/test_router_entities_manual.py
-python tests/test_faq_manual.py
-python tests/test_policy_answer_manual.py
-python tests/test_guards_manual.py
-python tests/test_full_flow_manual.py
+.\.venv\Scripts\python.exe tests/test_create_agent_manual.py
+.\.venv\Scripts\python.exe tests/test_tools_manual.py
+.\.venv\Scripts\python.exe tests/test_router_entities_manual.py
+.\.venv\Scripts\python.exe tests/test_faq_manual.py
+.\.venv\Scripts\python.exe tests/test_policy_answer_manual.py
+.\.venv\Scripts\python.exe tests/test_guards_manual.py
+.\.venv\Scripts\python.exe tests/test_full_flow_manual.py
 ```
 
 ## Despliegue en AWS
+
+Esta sección solo aplica si vas a construir o actualizar la infraestructura.
 
 ### 1. Configurar credenciales
 
