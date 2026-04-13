@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import unicodedata
 
+from core.bedrock_client import generate_bedrock_text, is_bedrock_configured
+
 
 def _normalize(text: str) -> str:
     raw = " ".join((text or "").strip().lower().split())
@@ -16,6 +18,42 @@ def build_public_faq_response(user_message: str) -> str | None:
 
     if not text:
         return None
+
+    open_help_tokens = [
+        "necesito ayuda",
+        "me ayudas",
+        "me puedes ayudar",
+        "puedes ayudarme",
+        "ando buscando ayuda",
+        "tengo una duda",
+        "tengo una preguntica",
+        "tengo una consulta",
+        "quiero informacion",
+        "quisiera informacion",
+        "quiero hacer una consulta",
+        "quiero consultar",
+    ]
+
+    if any(token in text for token in open_help_tokens):
+        if is_bedrock_configured():
+            prompt = (
+                "Eres un asistente de e-commerce. "
+                "El usuario abrió la conversación de forma general y todavía no dijo el tema exacto. "
+                "Respóndele en español de forma breve, natural y útil. "
+                "No inventes datos. "
+                "No uses emojis. "
+                "No uses markdown. "
+                "No cortes la respuesta a medias. "
+                "Dile en qué temas sí puedes ayudar y cierra con 3 ejemplos concretos en texto simple."
+            )
+            bedrock_text = generate_bedrock_text(prompt, max_tokens=140, temperature=0.2)
+            if bedrock_text:
+                return bedrock_text
+
+        return (
+            "Hola, puedo ayudarte con pedidos, guía, tracking, montos, productos, stock, garantías, devoluciones y políticas. "
+            "Por ejemplo: dónde está mi pedido, cuál es el precio del producto 5001 o puedo devolver un producto en promoción."
+        )
 
     greeting_tokens = [
         "hola",
@@ -34,20 +72,8 @@ def build_public_faq_response(user_message: str) -> str | None:
         "hola compa",
         "hola necesito ayuda",
         "hola, necesito ayuda",
-        "quiero hacer una consulta",
-        "quiero consultar",
-        "me puedes ayudar",
-        "puedes ayudarme",
         "me colaboras",
         "me colaboras porfa",
-        "me ayudas",
-        "ando buscando ayuda",
-        "tengo una duda",
-        "tengo una preguntica",
-        "tengo una consulta",
-        "quiero informacion",
-        "quisiera informacion",
-        "necesito ayuda",
         "buen dia me regalas info",
     ]
 

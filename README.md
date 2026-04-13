@@ -1,11 +1,11 @@
 # Agent OmniRetail
 
-Asistente conversacional para soporte de e-commerce, diseñado para responder consultas de clientes con reglas de seguridad explícitas, uso auditable de herramientas, recuperación documental y memoria conversacional útil.
+Asistente conversacional para soporte de e-commerce, diseñado para responder consultas de clientes con reglas de seguridad explícitas, uso auditable de herramientas, recuperación documental, memoria conversacional útil e integración controlada con AWS.
 
 El proyecto funciona en dos modos:
 
 - **Local**, para desarrollo, pruebas y validación del flujo.
-- **AWS**, para exponer el agente mediante API y persistir datos de sesión.
+- **AWS**, para exponer el agente mediante API, persistir sesión y consumir Bedrock.
 
 ## Alcance del agente
 
@@ -24,6 +24,7 @@ También puede:
 - validar ownership de pedidos
 - bloquear intentos básicos de prompt injection
 - mantener memoria útil entre turnos
+- usar Bedrock en flujos conversacionales controlados
 
 ## Casos de uso principales
 
@@ -50,25 +51,27 @@ Ejemplos de autenticación:
 
 ### Núcleo de aplicación
 
-- [core/agent.py](c:\Users\user\Desktop\agent-omniretail\core\agent.py): orquestación principal del agente
-- [core/router.py](c:\Users\user\Desktop\agent-omniretail\core\router.py): clasificación de intención
-- [core/entity_extractor.py](c:\Users\user\Desktop\agent-omniretail\core\entity_extractor.py): extracción de `dni`, `phone`, `order_id` y `product_id`
-- [core/session_context.py](c:\Users\user\Desktop\agent-omniretail\core\session_context.py): memoria conversacional y snapshot de sesión
-- [core/session_store.py](c:\Users\user\Desktop\agent-omniretail\core\session_store.py): persistencia de sesión en DynamoDB
-- [core/db.py](c:\Users\user\Desktop\agent-omniretail\core\db.py): acceso a datos tabulares con DuckDB
-- [core/policy_loader.py](c:\Users\user\Desktop\agent-omniretail\core\policy_loader.py): carga y segmentación de políticas
-- [core/s3_sync.py](c:\Users\user\Desktop\agent-omniretail\core\s3_sync.py): sincronización de CSV y Markdown desde S3
-- [core/guards.py](c:\Users\user\Desktop\agent-omniretail\core\guards.py): reglas de seguridad
-- [core/anti_hallucination.py](c:\Users\user\Desktop\agent-omniretail\core\anti_hallucination.py): verificación de uso real de tools antes de responder
+- `core/agent.py`: orquestación principal del agente
+- `core/router.py`: clasificación de intención
+- `core/entity_extractor.py`: extracción de `dni`, `phone`, `order_id` y `product_id`
+- `core/session_context.py`: memoria conversacional y snapshot de sesión
+- `core/session_store.py`: persistencia de sesión en DynamoDB
+- `core/db.py`: acceso a datos tabulares con DuckDB
+- `core/policy_loader.py`: carga y segmentación de políticas
+- `core/policy_response_builder.py`: construcción de respuestas sobre políticas
+- `core/s3_sync.py`: sincronización de CSV y Markdown desde S3
+- `core/guards.py`: reglas de seguridad
+- `core/anti_hallucination.py`: verificación de uso real de tools antes de responder
+- `core/bedrock_client.py`: cliente de Amazon Bedrock
 
 ### Tools
 
-- [tools/auth_tools.py](c:\Users\user\Desktop\agent-omniretail\tools\auth_tools.py)
-- [tools/customer_tools.py](c:\Users\user\Desktop\agent-omniretail\tools\customer_tools.py)
-- [tools/order_tools.py](c:\Users\user\Desktop\agent-omniretail\tools\order_tools.py)
-- [tools/order_item_tools.py](c:\Users\user\Desktop\agent-omniretail\tools\order_item_tools.py)
-- [tools/product_tools.py](c:\Users\user\Desktop\agent-omniretail\tools\product_tools.py)
-- [tools/policy_tools.py](c:\Users\user\Desktop\agent-omniretail\tools\policy_tools.py)
+- `tools/auth_tools.py`
+- `tools/customer_tools.py`
+- `tools/order_tools.py`
+- `tools/order_item_tools.py`
+- `tools/product_tools.py`
+- `tools/policy_tools.py`
 
 ## Arquitectura AWS
 
@@ -78,6 +81,7 @@ La versión desplegada en AWS usa esta arquitectura:
 - **AWS Lambda**: ejecuta el handler del agente
 - **S3**: almacena CSV y documentos de políticas
 - **DynamoDB**: guarda la sesión por `session_id`
+- **Amazon Bedrock**: mejora respuestas conversacionales en flujos controlados
 - **CloudWatch**: logs y observabilidad básica
 
 ### Flujo de ejecución en AWS
@@ -87,8 +91,27 @@ La versión desplegada en AWS usa esta arquitectura:
 3. Lambda rehidrata la sesión desde DynamoDB.
 4. Si hace falta, descarga datasets y políticas desde S3 a caché temporal.
 5. El agente procesa la consulta.
-6. Lambda persiste el nuevo snapshot de sesión en DynamoDB.
-7. La respuesta vuelve al cliente en JSON UTF-8.
+6. En casos abiertos y seguros, puede usar Bedrock para mejorar la respuesta.
+7. Lambda persiste el nuevo snapshot de sesión en DynamoDB.
+8. La respuesta vuelve al cliente en JSON UTF-8.
+
+## Integración actual con Bedrock
+
+Bedrock ya está integrado, pero de forma controlada. Hoy se usa en:
+
+- ayuda conversacional abierta cuando el usuario no plantea todavía una consulta concreta
+- reformulación de respuestas de políticas para que sean más limpias y legibles
+- refinamiento de búsquedas por nombre de producto cuando la consulta es muy coloquial
+
+Bedrock **no** decide por sí solo:
+
+- autenticación
+- ownership
+- tracking
+- montos
+- respuestas sensibles
+
+Eso sigue protegido por routing, guards y tools verificables.
 
 ## Estructura del proyecto
 
@@ -140,7 +163,7 @@ python -m pip install -r requirements-dev.txt
 
 Archivo de ejemplo:
 
-- [`.env.example`](c:\Users\user\Desktop\agent-omniretail\.env.example)
+- `.env.example`
 
 Variables principales:
 
@@ -157,7 +180,7 @@ APP_ENV=aws
 AWS_REGION=us-east-1
 DATA_BUCKET=agent-omniretail-data-123456789012
 SESSIONS_TABLE=agent-omniretail-sessions
-BEDROCK_MODEL_ID=
+BEDROCK_MODEL_ID=us.amazon.nova-2-lite-v1:0
 ```
 
 ## Datos esperados
@@ -202,11 +225,19 @@ print(response.content)
 print(str(response))
 ```
 
-### Chat manual
+### Chat manual local
 
 ```powershell
 python tests/test_chat_manual.py
 ```
+
+### Chat manual contra AWS
+
+```powershell
+python tests/test_chat_aws_manual.py
+```
+
+Ese script conversa contra el endpoint real en AWS y mantiene `session_id` entre turnos.
 
 ### Pruebas manuales recomendadas
 
@@ -251,7 +282,7 @@ sam deploy
 
 ## Recursos AWS esperados
 
-La plantilla [template.yaml](c:\Users\user\Desktop\agent-omniretail\template.yaml) crea:
+La plantilla `template.yaml` crea:
 
 - una función Lambda
 - un endpoint API Gateway `POST /chat`
@@ -262,6 +293,7 @@ La Lambda recibe estas variables:
 - `APP_ENV=aws`
 - `DATA_BUCKET=<bucket>`
 - `SESSIONS_TABLE=agent-omniretail-sessions`
+- `BEDROCK_MODEL_ID=us.amazon.nova-2-lite-v1:0`
 
 ## Prueba del endpoint AWS
 
@@ -289,6 +321,14 @@ Invoke-RestMethod -Method Post -Uri "https://<api-id>.execute-api.<region>.amazo
   -Body '{"message":"¿y la guía?","session_id":"demo-2"}'
 ```
 
+Ejemplo de ayuda abierta con Bedrock:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri "https://<api-id>.execute-api.<region>.amazonaws.com/Prod/chat" `
+  -ContentType "application/json" `
+  -Body '{"message":"Necesito ayuda con algo pero no sé cómo explicarlo","session_id":"demo-3"}'
+```
+
 ## Seguridad y control
 
 El agente aplica:
@@ -298,6 +338,7 @@ El agente aplica:
 - trazabilidad de tools
 - protección anti-hallucination para respuestas sensibles
 - bloqueo básico de prompt injection
+- uso acotado de Bedrock solo en flujos seguros
 
 ## Estado actual del proyecto
 
@@ -310,13 +351,13 @@ El agente aplica:
 - sesión persistente en DynamoDB
 - memoria útil entre turnos en AWS
 - respuestas UTF-8 correctas en el endpoint
+- Bedrock integrado y operativo en ayuda abierta, políticas y refinamiento de búsqueda de producto
 
 ### Pendientes razonables
 
-- integrar Bedrock si se quiere una capa LLM explícita en AWS
 - seguir refinando algunos follow-ups ambiguos
 - mejorar aún más el ranking de políticas
-- separar aún más el runtime del material de prueba si se busca endurecer producción
+- endurecer más la separación entre runtime y material de prueba si se busca producción real
 
 ## Fortalezas
 
@@ -325,21 +366,22 @@ El agente aplica:
 - fácil de explicar ante evaluación
 - costos contenidos para MVP
 - flujo sensible ya soportado en AWS
+- integración Bedrock ya validada
 
 ## Limitaciones
 
 - no es un chatbot generalista
 - algunos mensajes muy ambiguos siguen requiriendo más contexto
 - todavía usa DuckDB como capa tabular del MVP
-- la integración Bedrock no está activada en el flujo actual
+- Bedrock no participa en flujos sensibles, por diseño
 
 ## Documentación adicional
 
-- [docs/challenge_contract.md](c:\Users\user\Desktop\agent-omniretail\docs\challenge_contract.md)
-- [docs/data_model.md](c:\Users\user\Desktop\agent-omniretail\docs\data_model.md)
-- [docs/final_checklist.md](c:\Users\user\Desktop\agent-omniretail\docs\final_checklist.md)
-- [docs/routing_rules.md](c:\Users\user\Desktop\agent-omniretail\docs\routing_rules.md)
+- `docs/challenge_contract.md`
+- `docs/data_model.md`
+- `docs/final_checklist.md`
+- `docs/routing_rules.md`
 
 ## Nota final
 
-Este proyecto ya quedó listo como MVP técnico desplegado en AWS, con separación entre consultas públicas y sensibles, persistencia de sesión y soporte documental real. La siguiente evolución natural sería decidir si conviene mantener la lógica mayoritariamente determinística o incorporar Bedrock de forma controlada y con criterio de costo.
+Este proyecto ya quedó listo como MVP técnico desplegado en AWS, con separación entre consultas públicas y sensibles, persistencia de sesión, soporte documental real e integración funcional con Bedrock. La siguiente evolución natural sería decidir en qué puntos adicionales conviene usar el modelo sin perder control, costo ni trazabilidad.

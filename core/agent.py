@@ -9,6 +9,7 @@ from core.anti_hallucination import (
     build_missing_tool_response,
     has_required_tool_usage_since,
 )
+from core.bedrock_client import generate_bedrock_text, is_bedrock_configured
 from core.entity_extractor import extract_entities
 from core.faq_responses import build_public_faq_response
 from core.formatters import (
@@ -63,6 +64,7 @@ class OmniRetailAgent:
     def invoke(self, user_message: Any) -> AgentResponse:
         normalized_message = self._normalize_user_message(user_message)
         add_conversation_message("user", normalized_message)
+        set_context_value("last_user_message_for_fallback", normalized_message)
 
         guard = evaluate_security_guards(normalized_message)
         if guard.blocked:
@@ -847,6 +849,11 @@ class OmniRetailAgent:
 
         query = " ".join(terms[:4])
         result = search_products_by_text(query)
+        if not result.ok and is_bedrock_configured():
+            refined_query = self._refine_product_search_query(user_message)
+            if refined_query and refined_query != query:
+                query = refined_query
+                result = search_products_by_text(query)
         if not result.ok:
             return None
 
@@ -891,6 +898,22 @@ class OmniRetailAgent:
             "Encontré varios productos relacionados. "
             f"Indícame el product_id del que quieres revisar. Algunas opciones: {', '.join(visible)}."
         )
+
+    def _refine_product_search_query(self, user_message: str) -> str | None:
+        prompt = (
+            "Convierte una consulta de usuario sobre productos de e-commerce en una búsqueda corta y útil. "
+            "Devuelve solo una frase de 2 a 5 palabras, sin comillas, sin explicación y sin inventar marcas o modelos. "
+            "Prioriza nombre de producto, marca o categoría.\n\n"
+            f"Consulta del usuario: {user_message}"
+        )
+        refined = generate_bedrock_text(prompt, max_tokens=20, temperature=0.0)
+        if not refined:
+            return None
+
+        cleaned = " ".join(refined.replace("\n", " ").split())
+        if not cleaned:
+            return None
+        return cleaned[:80]
 
     def _build_display_name_from_customer(self, data: dict[str, Any]) -> str:
         return " ".join(

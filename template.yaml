@@ -34,6 +34,11 @@ Resources:
             BucketName: agent-omniretail-data-526680396747
         - DynamoDBCrudPolicy:
             TableName: agent-omniretail-sessions
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: "*"
       Events:
         ChatApi:
           Type: Api
@@ -45,6 +50,9 @@ Resources:
           APP_ENV: aws
           DATA_BUCKET: agent-omniretail-data-526680396747
           SESSIONS_TABLE: agent-omniretail-sessions
+          BEDROCK_MODEL_ID: us.amazon.nova-2-lite-v1:0
+          BEDROCK_MODEL_ID: us.amazon.nova-2-lite-v1:0
+
 
 Outputs:
   OmniRetailApiUrl:
