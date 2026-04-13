@@ -46,14 +46,25 @@
 - [ ] Recuerda `last_order_id`
 - [ ] Recuerda `last_product_id`
 - [ ] No rompe autenticación por recordar contexto
+- [ ] La sesión persiste entre llamadas en AWS con `session_id`
 
 ## 7. Datos
 - [ ] Los CSV están en `data/raw/`
 - [ ] Las políticas están en `data/policies/`
 - [ ] DuckDB carga correctamente
 - [ ] Las tools consultan los datos reales
+- [ ] En AWS, los datos pueden descargarse desde S3
 
-## 8. Antes del ZIP final
+## 8. AWS
+- [ ] La Lambda despliega correctamente con SAM
+- [ ] API Gateway expone `POST /chat`
+- [ ] DynamoDB guarda la sesión
+- [ ] S3 sirve como origen de CSV y políticas
+- [ ] El endpoint responde en UTF-8
+- [ ] Bedrock está configurado e invocable
+- [ ] Bedrock está integrado al menos en un flujo controlado
+
+## 9. Antes del ZIP final
 - [ ] Ejecutar pruebas manuales principales
 - [ ] Revisar imports
 - [ ] Revisar rutas relativas

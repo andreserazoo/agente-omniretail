@@ -10,6 +10,8 @@ from typing import Any
 # Este estado vive a nivel de módulo para que sea accesible dentro del mismo proceso.
 # No usar threading.local(), contextvars ni mecanismos que aíslen el estado por hilo.
 _LOCK = RLock()
+MAX_TOOL_TRACE_ENTRIES = 100
+MAX_CONVERSATION_MESSAGES = 12
 
 _SESSION_STATE: dict[str, Any] = {
     "customer": None,
@@ -44,6 +46,13 @@ def _safe_copy(value: Any) -> Any:
         return repr(value)
 
 
+def _append_bounded(items: list[Any], value: Any, max_size: int) -> None:
+    items.append(value)
+    overflow = len(items) - max_size
+    if overflow > 0:
+        del items[:overflow]
+
+
 # =========================================================
 # Funciones OBLIGATORIAS para el reto
 # =========================================================
@@ -71,7 +80,7 @@ def add_tool_trace(tool_name: str, input_data: Any, output_data: Any) -> dict[st
     }
 
     with _LOCK:
-        _SESSION_STATE["tool_trace"].append(entry)
+        _append_bounded(_SESSION_STATE["tool_trace"], entry, MAX_TOOL_TRACE_ENTRIES)
 
     return _safe_copy(entry)
 
@@ -191,7 +200,11 @@ def add_conversation_message(role: str, content: str) -> dict[str, str]:
     }
 
     with _LOCK:
-        _SESSION_STATE["conversation"].append(message)
+        _append_bounded(
+            _SESSION_STATE["conversation"],
+            message,
+            MAX_CONVERSATION_MESSAGES,
+        )
 
     return _safe_copy(message)
 
@@ -247,6 +260,22 @@ def get_session_snapshot() -> dict[str, Any]:
         return _safe_copy(_SESSION_STATE)
 
 
+def load_session_snapshot(snapshot: dict[str, Any] | None) -> None:
+    """
+    Restaura el estado completo de sesión desde un snapshot externo.
+    Útil para rehidratar sesión desde almacenamiento persistente.
+    """
+    if not isinstance(snapshot, dict):
+        reset_session()
+        return
+
+    with _LOCK:
+        _SESSION_STATE["customer"] = _safe_copy(snapshot.get("customer"))
+        _SESSION_STATE["tool_trace"] = _safe_copy(snapshot.get("tool_trace", []))
+        _SESSION_STATE["conversation"] = _safe_copy(snapshot.get("conversation", []))
+        _SESSION_STATE["metadata"] = _safe_copy(snapshot.get("metadata", {}))
+
+
 __all__ = [
     "SessionContext",
     "add_tool_trace",
@@ -264,4 +293,5 @@ __all__ = [
     "get_context_value",
     "clear_context_value",
     "get_session_snapshot",
+    "load_session_snapshot",
 ]

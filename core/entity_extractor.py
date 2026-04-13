@@ -23,6 +23,8 @@ def extract_entities(user_message: str) -> ExtractedEntities:
             r"(?:pedido|pedio|peddido)\s*(?:#|no\.?|nro\.?|numero\s*|id\s*)?(\d{1,10})",
             r"orden\s*(?:#|no\.?|nro\.?|numero\s*|id\s*)?(\d{1,10})",
             r"order\s*id\s*(\d{1,10})",
+            r"(?:^|[\s\?\.,])y\s+(?:el|la|del)\s+(\d{1,10})(?:$|[\s\?\.,])",
+            r"(?:^|[\s\?\.,])el\s+(\d{1,10})\s+(?:cuanto|costo|vale|tiene)(?:$|[\s\?\.,])",
         ],
     )
 

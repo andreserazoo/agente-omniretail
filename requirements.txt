@@ -1,5 +1,4 @@
 boto3
-pytest
 duckdb
 pydantic
 python-dotenv

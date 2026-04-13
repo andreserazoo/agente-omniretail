@@ -1,65 +1,123 @@
 # Agent OmniRetail
 
-Asistente conversacional para soporte de e-commerce, orientado a responder consultas de clientes con datos locales, políticas documentales y reglas de seguridad explícitas.
+Asistente conversacional para soporte de e-commerce, diseñado para responder consultas de clientes con reglas de seguridad explícitas, uso auditable de herramientas, recuperación documental, memoria conversacional útil e integración controlada con AWS.
 
-El proyecto fue construido como base funcional para un reto técnico de agentes: prioriza control de acceso, uso auditable de herramientas, recuperación documental y separación clara entre consultas públicas y sensibles.
+El proyecto funciona en dos modos:
 
-## Qué hace este agente
+- **Local**, para desarrollo, pruebas y validación del flujo.
+- **AWS**, para exponer el agente mediante API, persistir sesión y consumir Bedrock.
 
-El agente puede:
+## Alcance del agente
 
-- responder FAQs públicas
-- recuperar respuestas desde documentos de políticas
-- consultar productos, precio y stock
-- responder montos de pedidos
-- informar estado, tracking y envíos
-- validar garantía y devoluciones por pedido y producto
+El agente puede atender:
+
+- FAQs públicas
+- políticas de devolución, garantía y envío
+- precio y stock de productos
+- montos de pedidos
+- estado, tracking y guía
+- garantía y devoluciones por pedido y producto
+
+También puede:
+
 - exigir autenticación antes de exponer datos sensibles
+- validar ownership de pedidos
 - bloquear intentos básicos de prompt injection
+- mantener memoria útil entre turnos
+- usar Bedrock en flujos conversacionales controlados
 
-## Qué tipo de asistente es
+## Casos de uso principales
 
-Este no es un chatbot social general. Está orientado a atención al cliente para e-commerce.
+Ejemplos de consultas públicas:
 
-Eso significa que funciona mejor cuando el usuario consulta temas como:
+- `¿Qué métodos de pago manejan?`
+- `¿Hacen envíos a zonas rurales?`
+- `¿Cuál es el precio del producto 5001?`
+- `¿Puedo devolver un producto en promoción?`
 
-- pedidos
-- envíos
-- tracking
-- garantías
-- devoluciones
-- políticas
-- productos
-- precios y stock
+Ejemplos de consultas sensibles:
 
-## Arquitectura general
+- `¿Dónde está mi pedido?`
+- `¿Cuál es la guía del pedido 28?`
+- `¿Cuánto pagué en mi pedido?`
+- `¿Mi producto del pedido 28 aún tiene garantía?`
 
-### Core
+Ejemplos de autenticación:
 
-- `core/agent.py`: orquestación principal del agente.
-- `core/router.py`: clasificación de intención.
-- `core/entity_extractor.py`: extracción de `dni`, `phone`, `order_id` y `product_id`.
-- `core/session_context.py`: memoria conversacional, sesión autenticada y trazabilidad.
-- `core/guards.py`: validaciones de seguridad.
-- `core/anti_hallucination.py`: control de uso real de tools antes de responder.
-- `core/policy_loader.py`: carga y segmentación de políticas.
-- `core/policy_response_builder.py`: construcción de respuestas documentales.
-- `core/faq_responses.py`: respuestas rápidas para consultas públicas.
-- `core/db.py`: conexión local a DuckDB.
+- `Mi documento es 878545512`
+- `Mi teléfono es 3161809190`
+
+## Arquitectura actual
+
+### Núcleo de aplicación
+
+- `core/agent.py`: orquestación principal del agente
+- `core/router.py`: clasificación de intención
+- `core/entity_extractor.py`: extracción de `dni`, `phone`, `order_id` y `product_id`
+- `core/session_context.py`: memoria conversacional y snapshot de sesión
+- `core/session_store.py`: persistencia de sesión en DynamoDB
+- `core/db.py`: acceso a datos tabulares con DuckDB
+- `core/policy_loader.py`: carga y segmentación de políticas
+- `core/policy_response_builder.py`: construcción de respuestas sobre políticas
+- `core/s3_sync.py`: sincronización de CSV y Markdown desde S3
+- `core/guards.py`: reglas de seguridad
+- `core/anti_hallucination.py`: verificación de uso real de tools antes de responder
+- `core/bedrock_client.py`: cliente de Amazon Bedrock
 
 ### Tools
 
-- `tools/auth_tools.py`: autenticación por documento o teléfono.
-- `tools/order_tools.py`: montos, estado, tracking y envíos.
-- `tools/order_item_tools.py`: garantía y devoluciones por ítem.
-- `tools/product_tools.py`: precio y stock de productos.
-- `tools/policy_tools.py`: búsqueda sobre documentos Markdown.
-- `tools/query_helpers.py`: helpers de consulta sobre DuckDB.
+- `tools/auth_tools.py`
+- `tools/customer_tools.py`
+- `tools/order_tools.py`
+- `tools/order_item_tools.py`
+- `tools/product_tools.py`
+- `tools/policy_tools.py`
+
+## Arquitectura AWS
+
+La versión desplegada en AWS usa esta arquitectura:
+
+- **API Gateway**: expone el endpoint HTTP del agente
+- **AWS Lambda**: ejecuta el handler del agente
+- **S3**: almacena CSV y documentos de políticas
+- **DynamoDB**: guarda la sesión por `session_id`
+- **Amazon Bedrock**: mejora respuestas conversacionales en flujos controlados
+- **CloudWatch**: logs y observabilidad básica
+
+### Flujo de ejecución en AWS
+
+1. El cliente envía `message` y `session_id` al endpoint.
+2. API Gateway invoca la Lambda.
+3. Lambda rehidrata la sesión desde DynamoDB.
+4. Si hace falta, descarga datasets y políticas desde S3 a caché temporal.
+5. El agente procesa la consulta.
+6. En casos abiertos y seguros, puede usar Bedrock para mejorar la respuesta.
+7. Lambda persiste el nuevo snapshot de sesión en DynamoDB.
+8. La respuesta vuelve al cliente en JSON UTF-8.
+
+## Integración actual con Bedrock
+
+Bedrock ya está integrado, pero de forma controlada. Hoy se usa en:
+
+- ayuda conversacional abierta cuando el usuario no plantea todavía una consulta concreta
+- reformulación de respuestas de políticas para que sean más limpias y legibles
+- refinamiento de búsquedas por nombre de producto cuando la consulta es muy coloquial
+
+Bedrock **no** decide por sí solo:
+
+- autenticación
+- ownership
+- tracking
+- montos
+- respuestas sensibles
+
+Eso sigue protegido por routing, guards y tools verificables.
 
 ## Estructura del proyecto
 
 ```text
 agent-omniretail/
+  app/
   core/
   tools/
   data/
@@ -67,38 +125,144 @@ agent-omniretail/
     policies/
   docs/
   tests/
-  config/
+  template.yaml
+  Makefile
+  requirements.txt
+  requirements-dev.txt
   README.md
 ```
 
+## Modos de uso
+
+Hay tres formas de usar este proyecto:
+
+### 1. Probar la versión ya desplegada en AWS
+
+Este es el camino más simple para conversar con el agente y validar cómo responde.
+
+Requiere únicamente:
+
+- acceso al endpoint AWS
+- una forma de enviar requests HTTP, por ejemplo:
+  - PowerShell
+  - Postman
+  - el script `tests/test_chat_aws_manual.py`
+
+No requiere:
+
+- Docker
+- AWS SAM CLI
+- levantar el proyecto localmente
+- editar código
+
+### 2. Ejecutarlo localmente
+
+Este camino sirve para probar el proyecto en una máquina local, sin desplegar cambios.
+
+Requiere:
+
+- Python 3.11
+- dependencias del proyecto
+- datasets disponibles
+
+No requiere necesariamente:
+
+- Docker, si solo vas a correrlo local
+- AWS SAM CLI, si no vas a desplegar
+
+### 3. Desarrollar y desplegar cambios
+
+Este es el camino completo para editar el proyecto, construir la Lambda y desplegar en AWS.
+
+Requiere:
+
+- Python 3.11
+- Docker Desktop
+- AWS CLI
+- AWS SAM CLI
+
 ## Requisitos
 
-- Python 3.11+
-- DuckDB
+### Para solo probar el endpoint AWS
 
-Dependencias principales:
+- acceso al endpoint desplegado
+- PowerShell, Postman o `python` para usar `tests/test_chat_aws_manual.py`
+
+### Para ejecución local
+
+- Python 3.11
+
+### Para desarrollo y despliegue
+
+- Python 3.11
+- Docker Desktop
+- AWS CLI
+- AWS SAM CLI
+
+Dependencias de runtime:
 
 - `boto3`
-- `pytest`
 - `duckdb`
 - `pydantic`
 - `python-dotenv`
 
+Dependencias de desarrollo:
+
+- `pytest`
+
 ## Instalación local
 
-Desde la raíz del proyecto:
+Esta sección aplica cuando el proyecto se ejecuta en un equipo local. No es obligatoria para quien solo vaya a probar la versión AWS.
 
-```bash
+Si Python 3.11 no está instalado, en Windows puede instalarse por consola con:
+
+```powershell
+winget install Python.Python.3.11
+```
+
+La instalación puede verificarse con:
+
+```powershell
+py -3.11 --version
+```
+
+```powershell
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt
+```
+
+## Configuración de entorno
+
+Archivo de ejemplo:
+
+- `.env.example`
+
+Variables principales:
+
+- `APP_ENV=local|aws`
+- `AWS_REGION`
+- `DATA_BUCKET`
+- `SESSIONS_TABLE`
+- `BEDROCK_MODEL_ID`
+
+Ejemplo típico para modo AWS:
+
+```env
+APP_ENV=aws
+AWS_REGION=us-east-1
+DATA_BUCKET=agent-omniretail-data-123456789012
+SESSIONS_TABLE=agent-omniretail-sessions
+BEDROCK_MODEL_ID=us.amazon.nova-2-lite-v1:0
 ```
 
 ## Datos esperados
 
 ### CSV
 
-Los archivos tabulares deben estar en `data/raw/`:
+Deben existir estos archivos en `data/raw/` o en `s3://<bucket>/raw/`:
 
 - `customers.csv`
 - `customer_emails.csv`
@@ -116,13 +280,13 @@ Los archivos tabulares deben estar en `data/raw/`:
 
 ### Políticas
 
-Los documentos deben estar en `data/policies/`:
+Deben existir estos archivos en `data/policies/` o en `s3://<bucket>/policies/`:
 
 - `Política de devoluciones.md`
 - `Política de garantía.md`
 - `Políticas de envío.md`
 
-## Uso rápido
+## Uso local
 
 ### Crear el agente
 
@@ -136,140 +300,184 @@ print(response.content)
 print(str(response))
 ```
 
-### Script interactivo manual
+### Chat manual local
 
-Para probar el agente desde consola:
-
-```bash
-python tests/test_chat_manual.py
+```powershell
+.\.venv\Scripts\python.exe tests/test_chat_manual.py
 ```
 
-Ese script incluye comandos útiles:
+### Chat manual contra AWS
 
-- `/help`
-- `/examples`
-- `/reset`
-- `/exit`
-
-### Prueba integral manual
-
-```bash
-python tests/test_full_flow_manual.py
+```powershell
+.\.venv\Scripts\python.exe tests/test_chat_aws_manual.py
 ```
 
-### Prueba mínima de contrato
+Ese script conversa contra el endpoint real en AWS y mantiene `session_id` entre turnos.
 
-```bash
-python tests/test_create_agent_manual.py
+Cuando solo se quiere probar el agente desplegado, este suele ser el camino más simple.
+
+## Probar sin instalar todo el entorno
+
+Si ya existe un endpoint AWS desplegado, el agente puede probarse sin montar el proyecto completo.
+
+Opciones:
+
+- usar PowerShell con `Invoke-RestMethod`
+- usar Postman
+- usar el script `tests/test_chat_aws_manual.py` si tiene Python instalado
+
+Ejemplo mínimo con PowerShell:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri "https://<api-id>.execute-api.<region>.amazonaws.com/Prod/chat" `
+  -ContentType "application/json" `
+  -Body '{"message":"Hola","session_id":"demo-aws-1"}'
 ```
 
-## Cómo empezar una conversación
+En ese escenario no hace falta:
 
-El agente entiende mejor mensajes orientados a tarea, pero también puede arrancar con saludos o aperturas simples.
+- abrir Docker
+- correr SAM
+- instalar dependencias de desarrollo
+- configurar AWS CLI para solo consumir el endpoint
 
-Ejemplos válidos:
+### Pruebas manuales recomendadas
 
-- `Hola`
-- `Buenas`
-- `Buenos dias`
-- `Hola, necesito ayuda`
-- `Quiero hacer una consulta`
-- `Me puedes ayudar con un pedido`
-- `Quiero informacion sobre un producto`
+```powershell
+.\.venv\Scripts\python.exe tests/test_create_agent_manual.py
+.\.venv\Scripts\python.exe tests/test_tools_manual.py
+.\.venv\Scripts\python.exe tests/test_router_entities_manual.py
+.\.venv\Scripts\python.exe tests/test_faq_manual.py
+.\.venv\Scripts\python.exe tests/test_policy_answer_manual.py
+.\.venv\Scripts\python.exe tests/test_guards_manual.py
+.\.venv\Scripts\python.exe tests/test_full_flow_manual.py
+```
 
-Después de eso, las consultas más naturales para el agente son:
+## Despliegue en AWS
 
-- `¿Dónde está mi pedido 303?`
-- `Mi documento es 1181165722`
-- `¿Y la guía?`
-- `¿Y el tracking?`
-- `¿Cuánto pagué en ese pedido?`
-- `¿Cuál es el precio del producto 5001?`
-- `¿Y el stock?`
-- `¿Puedo devolver el producto del pedido 303?`
+Esta sección solo aplica si vas a construir o actualizar la infraestructura.
 
-## Flujo esperado
+### 1. Configurar credenciales
 
-### 1. Consulta pública
+```powershell
+aws configure
+aws sts get-caller-identity
+```
 
-No requiere autenticación.
+### 2. Construir
 
-Ejemplos:
+```powershell
+sam build --use-container
+```
 
-- métodos de pago
-- cobertura de envíos
-- atención por WhatsApp
-- precio y stock
-- políticas generales
+### 3. Desplegar
 
-### 2. Consulta sensible
+Primer despliegue:
 
-Sí requiere autenticación.
+```powershell
+sam deploy --guided
+```
 
-Ejemplos:
+Siguientes despliegues:
 
-- estado del pedido
-- tracking
-- guía
-- montos
-- garantía de una compra
-- devolución de un producto comprado
+```powershell
+sam deploy
+```
 
-### 3. Autenticación
+## Recursos AWS esperados
 
-El agente acepta autenticación por:
+La plantilla `template.yaml` crea:
 
-- documento
-- teléfono registrado
+- una función Lambda
+- un endpoint API Gateway `POST /chat`
+- una tabla DynamoDB para sesión
 
-Una vez autenticado, puede reutilizar parte del contexto reciente para follow-ups cortos, siempre sin saltarse ownership ni controles de acceso.
+La Lambda recibe estas variables:
 
-## Contrato técnico importante
+- `APP_ENV=aws`
+- `DATA_BUCKET=<bucket>`
+- `SESSIONS_TABLE=agent-omniretail-sessions`
+- `BEDROCK_MODEL_ID=us.amazon.nova-2-lite-v1:0`
 
-El proyecto cumple con la base esperada por el reto:
+## Prueba del endpoint AWS
 
-- existe `core/agent.py`
-- existe `core/session_context.py`
-- `create_agent(streaming=False)` retorna un agente funcional
-- el agente es invocable como `agent("texto")`
-- la respuesta expone `.content` o funciona con `str(response)`
-- se registra trazabilidad de tools
-- se registra la sesión del cliente autenticado
+Ejemplo:
 
-## Pruebas recomendadas
+```powershell
+Invoke-RestMethod -Method Post -Uri "https://<api-id>.execute-api.<region>.amazonaws.com/Prod/chat" `
+  -ContentType "application/json" `
+  -Body '{"message":"¿Cuál es el precio del producto 5001?","session_id":"demo-1"}'
+```
 
-Pruebas principales:
+Ejemplo de flujo autenticado:
 
-- `python tests/test_create_agent_manual.py`
-- `python tests/test_tools_manual.py`
-- `python tests/test_router_entities_manual.py`
-- `python tests/test_faq_manual.py`
-- `python tests/test_policy_answer_manual.py`
-- `python tests/test_guards_manual.py`
-- `python tests/test_full_flow_manual.py`
+```powershell
+Invoke-RestMethod -Method Post -Uri "https://<api-id>.execute-api.<region>.amazonaws.com/Prod/chat" `
+  -ContentType "application/json" `
+  -Body '{"message":"Mi documento es 878545512","session_id":"demo-2"}'
 
-Pruebas adicionales:
+Invoke-RestMethod -Method Post -Uri "https://<api-id>.execute-api.<region>.amazonaws.com/Prod/chat" `
+  -ContentType "application/json" `
+  -Body '{"message":"Quiero saber del pedido 28","session_id":"demo-2"}'
 
-- `python tests/test_chat_manual.py`
-- `python tests/test_memory_manual.py`
-- `python tests/test_edge_cases_manual.py`
-- `pytest -q`
+Invoke-RestMethod -Method Post -Uri "https://<api-id>.execute-api.<region>.amazonaws.com/Prod/chat" `
+  -ContentType "application/json" `
+  -Body '{"message":"¿y la guía?","session_id":"demo-2"}'
+```
 
-## Fortalezas actuales
+Ejemplo de ayuda abierta con Bedrock:
 
-- buena separación entre consultas públicas y sensibles
-- autenticación obligatoria para pedidos
-- trazabilidad de tool use
-- recuperación de políticas desde documentos
-- memoria conversacional básica
-- protección contra respuestas sensibles inventadas
+```powershell
+Invoke-RestMethod -Method Post -Uri "https://<api-id>.execute-api.<region>.amazonaws.com/Prod/chat" `
+  -ContentType "application/json" `
+  -Body '{"message":"Necesito ayuda con algo pero no sé cómo explicarlo","session_id":"demo-3"}'
+```
 
-## Limitaciones actuales
+## Seguridad y control
 
-- todavía no es un chatbot social general
-- el lenguaje muy coloquial o con errores extremos puede afectar el routing
-- algunos follow-ups cortos siguen siendo sensibles al contexto previo
-- la experiencia conversacional está sólida para demo técnica, pero aún puede pulirse para uso real
+El agente aplica:
+
+- autenticación obligatoria para consultas sensibles
+- validación de ownership antes de exponer pedidos
+- trazabilidad de tools
+- protección anti-hallucination para respuestas sensibles
+- bloqueo básico de prompt injection
+- uso acotado de Bedrock solo en flujos seguros
+
+## Estado actual del proyecto
+
+### Ya funcionando
+
+- flujo local completo
+- despliegue en AWS con SAM
+- lectura de CSV desde S3
+- lectura de políticas desde S3
+- sesión persistente en DynamoDB
+- memoria útil entre turnos en AWS
+- respuestas UTF-8 correctas en el endpoint
+- Bedrock integrado y operativo en ayuda abierta, políticas y refinamiento de búsqueda de producto
+
+### Pendientes razonables
+
+- seguir refinando algunos follow-ups ambiguos
+- mejorar aún más el ranking de políticas
+- endurecer más la separación entre runtime y material de prueba si se busca producción real
+
+## Fortalezas
+
+- arquitectura clara para demo técnica
+- buen balance entre reglas, datos y seguridad
+- fácil de explicar ante evaluación
+- costos contenidos para MVP
+- flujo sensible ya soportado en AWS
+- integración Bedrock ya validada
+
+## Limitaciones
+
+- no es un chatbot generalista
+- algunos mensajes muy ambiguos siguen requiriendo más contexto
+- todavía usa DuckDB como capa tabular del MVP
+- Bedrock no participa en flujos sensibles, por diseño
 
 ## Documentación adicional
 
@@ -278,6 +486,6 @@ Pruebas adicionales:
 - `docs/final_checklist.md`
 - `docs/routing_rules.md`
 
-## Nota
+## Nota final
 
-El proyecto usa DuckDB en local para validación y prototipado antes de una posible migración a AWS.
+Este proyecto ya quedó listo como MVP técnico desplegado en AWS, con separación entre consultas públicas y sensibles, persistencia de sesión, soporte documental real e integración funcional con Bedrock. La siguiente evolución natural sería decidir en qué puntos adicionales conviene usar el modelo sin perder control, costo ni trazabilidad.

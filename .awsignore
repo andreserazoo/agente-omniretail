@@ -1,0 +1,17 @@
+.aws-sam/
+.aws_cache/
+.git/
+.venv/
+.vscode/
+__pycache__/
+.pytest_cache/
+tests/
+docs/
+infra/
+config/
+sql/
+event.json
+template.yaml
+samconfig.toml
+requirements-dev.txt
+.env.example
